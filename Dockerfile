@@ -1,5 +1,5 @@
-# Use official PHP image with Alpine
-FROM php:8.2-fpm
+# Use PHP with Apache (works best for Laravel deployments)
+FROM php:8.2-apache
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -9,13 +9,15 @@ RUN apt-get update && apt-get install -y \
     curl \
     libpng-dev \
     libonig-dev \
-    libxml2-dev
+    libxml2-dev \
+    nodejs \
+    npm
+
+# Enable Apache mod_rewrite
+RUN a2enmod rewrite
 
 # Install PHP extensions
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
-
-# Install Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
@@ -23,14 +25,25 @@ WORKDIR /var/www/html
 # Copy project files
 COPY . .
 
-# Install dependencies
-RUN composer install --no-dev --optimize-autoloader
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Generate optimized Laravel config
+# Install PHP dependencies
+RUN composer install --no-interaction --prefer-dist --optimize-autoloader
+
+# Install NPM dependencies & build (important for Vite)
+RUN npm install && npm run build
+
+# Generate app key
 RUN php artisan key:generate
 
-# Expose port
+# Cache Laravel config & routes
+RUN php artisan config:cache
+RUN php artisan route:cache
+RUN php artisan view:cache
+
+# Expose port 80
 EXPOSE 80
 
-# Run Laravel server
-CMD php artisan serve --host=0.0.0.0 --port=80
+# Start Apache
+CMD ["apache2-foreground"]
